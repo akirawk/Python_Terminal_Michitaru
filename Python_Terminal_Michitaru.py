@@ -6,6 +6,8 @@ import threading
 import datetime
 import os
 import time
+import requests
+from dateutil import parser
 
 # グローバル停止フラグ
 stop_flag = threading.Event()
@@ -47,8 +49,8 @@ def create_log_file(port):
     log_dir = os.path.join(os.getcwd(), "logs")
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
-    log_file = os.path.join(log_dir, f"{port.replace('/', '_')}_{today}.log")
-    return log_file
+    log_file_path = os.path.join(log_dir, f"{port.replace('/', '_')}_{today}.log")
+    return log_file_path
 
 log_buffer = []
 buffer_lock = threading.Lock()
@@ -73,17 +75,21 @@ def write_log_file(log_file):
 
 def read_from_serial(ser, log_file, line_buffer_lock, line_buffer):
     while not stop_flag.is_set():
-        if ser.in_waiting > 0:
-            char = ser.read(1).decode('utf-8')
-            with line_buffer_lock:
-                line_buffer.append(char)
-            print(char, end='', flush=True)
-            if char == '\r':
+        try:
+            if ser.in_waiting > 0:
+                char = ser.read(1).decode('utf-8')
                 with line_buffer_lock:
-                    log_data(log_file, ''.join(line_buffer).strip())
-                    line_buffer.clear()
-        else:
-            time.sleep(0.1)
+                    line_buffer.append(char)
+                print(char, end='', flush=True)
+                if char == '\r':
+                    with line_buffer_lock:
+                        log_data(log_file, ''.join(line_buffer).strip())
+                        line_buffer.clear()
+            else:
+                time.sleep(0.1)
+        except serial.SerialException as e:
+            if not stop_flag.is_set():
+                print(f"Serial exception in read thread: {e}")
 
 def write_to_serial(ser, log_file, line_buffer_lock, line_buffer):
     while not stop_flag.is_set():
@@ -108,7 +114,29 @@ def write_to_serial(ser, log_file, line_buffer_lock, line_buffer):
             stop_flag.set()
             break
 
+def get_formatted_time():
+    response = requests.get("http://worldtimeapi.org/api/timezone/Etc/UTC")
+    data = response.json()
+    dt = parser.isoparse(data['datetime'])
+    formatted_time = dt.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+    return formatted_time
+
+def print_time_periodically():
+    while not stop_flag.is_set():
+        try:
+            formatted_time = get_formatted_time()
+            print(formatted_time)
+            for _ in range(3600):  # 1時間（3600秒）を小刻みにチェック
+                if stop_flag.is_set():
+                    break
+                time.sleep(1)
+        except Exception as e:
+            if not stop_flag.is_set():
+                print(f"Exception in time thread: {e}")
+
 def main():
+    global log_file
+    
     print("Python_Terminal_Michitaru Ver.1.0.0")
 
     selected_port = select_serial_port()
@@ -130,26 +158,28 @@ def main():
         read_thread = threading.Thread(target=read_from_serial, args=(ser, log_file, line_buffer_lock, line_buffer), daemon=True)
         write_thread = threading.Thread(target=write_to_serial, args=(ser, log_file, line_buffer_lock, line_buffer), daemon=True)
         log_thread = threading.Thread(target=write_log_file, args=(log_file,), daemon=True)
+        time_thread = threading.Thread(target=print_time_periodically, daemon=True)
 
         # スレッドの開始
         read_thread.start()
         write_thread.start()
         log_thread.start()
+        time_thread.start()
 
         # write_threadの終了を待つ
         write_thread.join()
-        read_thread.join()
-        log_thread.join()
 
     except serial.SerialException as e:
         print(f"Serial exception: {e}")
     except KeyboardInterrupt:
         print("\nProgram terminated by user")
         stop_flag.set()
+    finally:
+        stop_flag.set()
         read_thread.join()
         write_thread.join()
         log_thread.join()
-    finally:
+        time_thread.join()
         # シリアルポートを閉じる
         if ser.is_open:
             ser.close()
