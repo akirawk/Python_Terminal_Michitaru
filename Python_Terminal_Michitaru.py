@@ -7,6 +7,9 @@ import datetime
 import os
 import time
 
+# グローバル停止フラグ
+stop_flag = threading.Event()
+
 def list_serial_ports():
     ports = serial.tools.list_ports.comports()
     return [port.device for port in ports]
@@ -57,7 +60,7 @@ def log_data(log_file, data):
         log_buffer.append(log_entry)
 
 def write_log_file(log_file):
-    while True:
+    while not stop_flag.is_set():
         time.sleep(0.5)  # 少しの間待機してから書き込み
         with buffer_lock:
             if log_buffer:
@@ -69,7 +72,7 @@ def write_log_file(log_file):
                     print(f"File access error: {e}. Retrying...")
 
 def read_from_serial(ser, log_file, line_buffer_lock, line_buffer):
-    while True:
+    while not stop_flag.is_set():
         if ser.in_waiting > 0:
             char = ser.read(1).decode('utf-8')
             with line_buffer_lock:
@@ -79,25 +82,35 @@ def read_from_serial(ser, log_file, line_buffer_lock, line_buffer):
                 with line_buffer_lock:
                     log_data(log_file, ''.join(line_buffer).strip())
                     line_buffer.clear()
+        else:
+            time.sleep(0.1)
 
 def write_to_serial(ser, log_file, line_buffer_lock, line_buffer):
-    while True:
-        user_input = input()
-        ser.write(user_input.encode('utf-8'))
-        ser.write('\r'.encode('utf-8'))
-        with line_buffer_lock:
-            line_buffer.extend(list(user_input))
-            line_buffer.append('\r')
-            log_data(log_file, ''.join(line_buffer).strip())
-            line_buffer.clear()
-        for char in user_input:
-            print(char, end='', flush=True)
-        print('\r', end='', flush=True)
-        if user_input.lower() == 'exit':
-            print("Exiting...")
+    while not stop_flag.is_set():
+        try:
+            user_input = input()
+            for char in user_input:
+                ser.write(char.encode('utf-8'))
+                with line_buffer_lock:
+                    line_buffer.append(char)
+                print(char, end='', flush=True)
+            ser.write('\r'.encode('utf-8'))
+            with line_buffer_lock:
+                line_buffer.append('\r')
+                log_data(log_file, ''.join(line_buffer).strip())
+                line_buffer.clear()
+            print('\r', end='', flush=True)
+            if user_input.lower() == 'exit':
+                print("Exiting...")
+                stop_flag.set()
+                break
+        except EOFError:
+            stop_flag.set()
             break
 
 def main():
+    print("Python_Terminal_Michitaru Ver.1.0.0")
+
     selected_port = select_serial_port()
     if not selected_port:
         return
@@ -125,11 +138,17 @@ def main():
 
         # write_threadの終了を待つ
         write_thread.join()
+        read_thread.join()
+        log_thread.join()
 
     except serial.SerialException as e:
         print(f"Serial exception: {e}")
     except KeyboardInterrupt:
-        print("Program terminated by user")
+        print("\nProgram terminated by user")
+        stop_flag.set()
+        read_thread.join()
+        write_thread.join()
+        log_thread.join()
     finally:
         # シリアルポートを閉じる
         if ser.is_open:
