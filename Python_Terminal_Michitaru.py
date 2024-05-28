@@ -121,11 +121,12 @@ def get_formatted_time():
     formatted_time = dt.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
     return formatted_time
 
-def print_time_periodically():
+def print_and_send_time_periodically(ser):
     while not stop_flag.is_set():
         try:
             formatted_time = get_formatted_time()
             print(formatted_time)
+            ser.write((formatted_time + '\r').encode('utf-8'))
             for _ in range(3600):  # 1時間（3600秒）を小刻みにチェック
                 if stop_flag.is_set():
                     break
@@ -158,7 +159,7 @@ def main():
         read_thread = threading.Thread(target=read_from_serial, args=(ser, log_file, line_buffer_lock, line_buffer), daemon=True)
         write_thread = threading.Thread(target=write_to_serial, args=(ser, log_file, line_buffer_lock, line_buffer), daemon=True)
         log_thread = threading.Thread(target=write_log_file, args=(log_file,), daemon=True)
-        time_thread = threading.Thread(target=print_time_periodically, daemon=True)
+        time_thread = threading.Thread(target=print_and_send_time_periodically, args=(ser,), daemon=True)
 
         # スレッドの開始
         read_thread.start()
