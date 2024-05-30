@@ -9,6 +9,9 @@ import time
 import requests
 from dateutil import parser
 
+# 時計送信機能
+TimerIntervalSender = False
+
 # グローバル停止フラグ
 stop_flag = threading.Event()
 
@@ -52,26 +55,11 @@ def create_log_file(port):
     log_file_path = os.path.join(log_dir, f"{port.replace('/', '_')}_{today}.log")
     return log_file_path
 
-log_buffer = []
-buffer_lock = threading.Lock()
-
 def log_data(log_file, data):
     timestamp = f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}]"
     log_entry = f"{timestamp} {data}\n"
-    with buffer_lock:
-        log_buffer.append(log_entry)
-
-def write_log_file(log_file):
-    while not stop_flag.is_set():
-        time.sleep(0.5)  # 少しの間待機してから書き込み
-        with buffer_lock:
-            if log_buffer:
-                try:
-                    with open(log_file, 'a', encoding='utf-8') as f:
-                        while log_buffer:
-                            f.write(log_buffer.pop(0))
-                except IOError as e:
-                    print(f"File access error: {e}. Retrying...")
+    log_file.write(log_entry)
+    log_file.flush()
 
 def read_from_serial(ser, log_file, line_buffer_lock, line_buffer):
     while not stop_flag.is_set():
@@ -121,12 +109,13 @@ def get_formatted_time():
     formatted_time = dt.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
     return formatted_time
 
-def print_and_send_time_periodically(ser):
+def print_and_send_time_periodically(ser, log_file):
     while not stop_flag.is_set():
         try:
             formatted_time = get_formatted_time()
             print(formatted_time)
             ser.write((formatted_time + '\r').encode('utf-8'))
+            log_data(log_file, formatted_time)
             for _ in range(3600):  # 1時間（3600秒）を小刻みにチェック
                 if stop_flag.is_set():
                     break
@@ -145,8 +134,8 @@ def main():
         return
 
     baud_rate = get_baud_rate()
-    log_file = create_log_file(selected_port)
-    print(f"Logging to file: {log_file}")
+    log_file_path = create_log_file(selected_port)
+    print(f"Logging to file: {log_file_path}")
 
     try:
         # シリアルポートの初期化
@@ -155,20 +144,24 @@ def main():
         line_buffer = []
         line_buffer_lock = threading.Lock()
 
-        # スレッドの設定
-        read_thread = threading.Thread(target=read_from_serial, args=(ser, log_file, line_buffer_lock, line_buffer), daemon=True)
-        write_thread = threading.Thread(target=write_to_serial, args=(ser, log_file, line_buffer_lock, line_buffer), daemon=True)
-        log_thread = threading.Thread(target=write_log_file, args=(log_file,), daemon=True)
-        time_thread = threading.Thread(target=print_and_send_time_periodically, args=(ser,), daemon=True)
+        # ログファイルのオープン
+        with open(log_file_path, 'a', encoding='utf-8') as log_file:
+            # スレッドの設定
+            read_thread = threading.Thread(target=read_from_serial, args=(ser, log_file, line_buffer_lock, line_buffer), daemon=True)
+            write_thread = threading.Thread(target=write_to_serial, args=(ser, log_file, line_buffer_lock, line_buffer), daemon=True)
+            
+            if TimerIntervalSender:
+                time_thread = threading.Thread(target=print_and_send_time_periodically, args=(ser, log_file), daemon=True)
 
-        # スレッドの開始
-        read_thread.start()
-        write_thread.start()
-        log_thread.start()
-        time_thread.start()
+            # スレッドの開始
+            read_thread.start()
+            write_thread.start()
 
-        # write_threadの終了を待つ
-        write_thread.join()
+            if TimerIntervalSender:
+                time_thread.start()
+
+            # write_threadの終了を待つ
+            write_thread.join()
 
     except serial.SerialException as e:
         print(f"Serial exception: {e}")
@@ -179,8 +172,10 @@ def main():
         stop_flag.set()
         read_thread.join()
         write_thread.join()
-        log_thread.join()
-        time_thread.join()
+
+        if TimerIntervalSender:
+            time_thread.join()
+
         # シリアルポートを閉じる
         if ser.is_open:
             ser.close()
