@@ -10,7 +10,7 @@ import requests
 from dateutil import parser
 
 # 時計送信機能
-TimerIntervalSender = False
+TimerIntervalSender = True
 
 # グローバル停止フラグ
 stop_flag = threading.Event()
