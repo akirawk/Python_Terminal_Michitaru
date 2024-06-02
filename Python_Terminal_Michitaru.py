@@ -127,7 +127,7 @@ def print_and_send_time_periodically(ser, log_file):
 def main():
     global log_file
     
-    print("Python_Terminal_Michitaru Ver.1.0.0")
+    print("Python_Terminal(Zihou Ver) Ver.1.0.0")
 
     selected_port = select_serial_port()
     if not selected_port:
