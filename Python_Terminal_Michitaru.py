@@ -65,7 +65,7 @@ def read_from_serial(ser, log_file, line_buffer_lock, line_buffer):
     while not stop_flag.is_set():
         try:
             if ser.in_waiting > 0:
-                char = ser.read(1).decode('utf-8')
+                char = ser.read(1).decode('utf-8', errors='ignore')
                 with line_buffer_lock:
                     line_buffer.append(char)
                 print(char, end='', flush=True)
@@ -103,7 +103,7 @@ def write_to_serial(ser, log_file, line_buffer_lock, line_buffer):
             break
 
 def get_formatted_time():
-    response = requests.get("http://worldtimeapi.org/api/timezone/Etc/UTC")
+    response = requests.get("https://worldtimeapi.org/api/timezone/Asia/Tokyo/")
     data = response.json()
     dt = parser.isoparse(data['datetime'])
     formatted_time = dt.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
@@ -116,7 +116,7 @@ def print_and_send_time_periodically(ser, log_file):
             print(formatted_time)
             ser.write((formatted_time + '\r').encode('utf-8'))
             log_data(log_file, formatted_time)
-            for _ in range(3600):  # 1時間（3600秒）を小刻みにチェック
+            for _ in range(600):  # 指定秒を小刻みにチェック
                 if stop_flag.is_set():
                     break
                 time.sleep(1)
