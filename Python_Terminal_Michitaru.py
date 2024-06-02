@@ -112,14 +112,19 @@ def get_formatted_time():
 def print_and_send_time_periodically(ser, log_file):
     while not stop_flag.is_set():
         try:
+            start_time = time.perf_counter()
             formatted_time = get_formatted_time()
             print(formatted_time)
             ser.write((formatted_time + '\r').encode('utf-8'))
             log_data(log_file, formatted_time)
-            for _ in range(600):  # 指定秒を小刻みにチェック
-                if stop_flag.is_set():
+            
+            while not stop_flag.is_set():
+                current_time = time.perf_counter()
+                elapsed_time = current_time - start_time
+                if elapsed_time >= 600:
                     break
                 time.sleep(1)
+                
         except Exception as e:
             if not stop_flag.is_set():
                 print(f"Exception in time thread: {e}")
@@ -127,7 +132,7 @@ def print_and_send_time_periodically(ser, log_file):
 def main():
     global log_file
     
-    print("Python_Terminal(Zihou Ver) Ver.1.0.0")
+    print("Python_Terminal(Zihou Ver) Ver.1.0.1")
 
     selected_port = select_serial_port()
     if not selected_port:
