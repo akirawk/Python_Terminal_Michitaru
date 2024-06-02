@@ -102,29 +102,40 @@ def write_to_serial(ser, log_file, line_buffer_lock, line_buffer):
             stop_flag.set()
             break
 
-def get_formatted_time():
-    response = requests.get("https://worldtimeapi.org/api/timezone/Asia/Tokyo/")
-    data = response.json()
-    dt = parser.isoparse(data['datetime'])
-    formatted_time = dt.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-    return formatted_time
+def get_formatted_time(max_response_time=0.5):
+    try:
+        start_time = time.time()
+        response = requests.get("https://worldtimeapi.org/api/timezone/Asia/Tokyo/")
+        response_time = time.time() - start_time
+        if response_time > max_response_time:
+            print(f"Response time {response_time}s exceeded the maximum allowed {max_response_time}s. Discarding response.")
+            return None
+        data = response.json()
+        dt = parser.isoparse(data['datetime'])
+        formatted_time = dt.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        return formatted_time
+    except (requests.RequestException, ValueError) as e:
+        print(f"Failed to get time: {e}")
+        return None
 
 def print_and_send_time_periodically(ser, log_file):
     while not stop_flag.is_set():
         try:
             start_time = time.perf_counter()
             formatted_time = get_formatted_time()
-            print(formatted_time)
-            ser.write((formatted_time + '\r').encode('utf-8'))
-            log_data(log_file, formatted_time)
-            
+            if formatted_time:
+                print(formatted_time)
+                ser.write((formatted_time + '\r').encode('utf-8'))
+                log_data(log_file, formatted_time)
+            else:
+                print("Skipping time announcement.")
             while not stop_flag.is_set():
                 current_time = time.perf_counter()
                 elapsed_time = current_time - start_time
                 if elapsed_time >= 600:
                     break
                 time.sleep(1)
-                
+
         except Exception as e:
             if not stop_flag.is_set():
                 print(f"Exception in time thread: {e}")
@@ -132,7 +143,7 @@ def print_and_send_time_periodically(ser, log_file):
 def main():
     global log_file
     
-    print("Python_Terminal(Zihou Ver) Ver.1.0.1")
+    print("Python_Terminal(Zihou Ver) Ver.1.0.2")
 
     selected_port = select_serial_port()
     if not selected_port:
@@ -154,7 +165,7 @@ def main():
             # スレッドの設定
             read_thread = threading.Thread(target=read_from_serial, args=(ser, log_file, line_buffer_lock, line_buffer), daemon=True)
             write_thread = threading.Thread(target=write_to_serial, args=(ser, log_file, line_buffer_lock, line_buffer), daemon=True)
-            
+
             if TimerIntervalSender:
                 time_thread = threading.Thread(target=print_and_send_time_periodically, args=(ser, log_file), daemon=True)
 
