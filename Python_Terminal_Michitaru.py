@@ -42,7 +42,8 @@ def select_serial_port():
 def get_baud_rate():
     while True:
         try:
-            baud_rate = int(input("Enter the baud rate: "))
+            # baud_rate = int(input("Enter the baud rate: "))
+            baud_rate = 115200
             return baud_rate
         except ValueError:
             print("Invalid input. Please enter a number.")
@@ -102,11 +103,12 @@ def write_to_serial(ser, log_file, line_buffer_lock, line_buffer):
             stop_flag.set()
             break
 
-def get_formatted_time(max_response_time=0.5):
+def get_formatted_time(max_response_time=0.365):
     try:
         start_time = time.time()
         response = requests.get("https://worldtimeapi.org/api/timezone/Asia/Tokyo/")
         response_time = time.time() - start_time
+        # print(f"Response time: {response_time}s")
         if response_time > max_response_time:
             print(f"Response time {response_time}s exceeded the maximum allowed {max_response_time}s. Discarding response.")
             return None
@@ -132,7 +134,7 @@ def print_and_send_time_periodically(ser, log_file):
             while not stop_flag.is_set():
                 current_time = time.perf_counter()
                 elapsed_time = current_time - start_time
-                if elapsed_time >= 600:
+                if elapsed_time >= 180:
                     break
                 time.sleep(1)
 
@@ -143,7 +145,7 @@ def print_and_send_time_periodically(ser, log_file):
 def main():
     global log_file
     
-    print("Python_Terminal(Zihou Ver) Ver.1.0.2")
+    print("Python_Terminal(Zihou Ver) Ver.1.0.3")
 
     selected_port = select_serial_port()
     if not selected_port:
